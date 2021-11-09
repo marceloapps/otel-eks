@@ -1,0 +1,134 @@
+# create namespace for the otel collector
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aws-otel-eks
+  labels:
+    name: aws-otel-eks
+---
+
+# create the ConfigMap required by the collector
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-conf
+  namespace: aws-otel-eks
+  labels:
+    app: opentelemetry
+    component: otel-collector-conf
+data:
+  otel-collector-config: |
+    receivers:
+        otlp:
+            protocols:
+                grpc:
+    processors:
+        memory_limiter:
+            limit_mib: 100
+            check_interval: 5s
+    exporters:
+        logging: debug
+        jaeger:
+            endpoint: "http://localhost:14250"
+            insecure: true
+    service:
+    pipelines:
+        traces:
+        receivers: 
+            - otlp
+        processors: 
+        exporters:
+            - jaeger
+            - logging
+---
+
+# create daemonset to be deployed to every worker node in the cluster
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+    name: aws-otel-collector
+    namespace: aws-otel-eks
+    labels:
+        app: aws-otel
+spec:
+    selector:
+        matchLabels:
+            app: aws-otel
+    minReadySeconds: 5        
+    template:
+        metadata:
+            labels:
+                app: aws-otel
+        spec:
+            containers:
+                - image: amazon/aws-otel-collector:latest
+                  name: observability-otel-collector
+                  imagePullPolicy: IfNotPresent
+                  env:
+                    - name: AWS_REGION
+                      value: "sa-east-1"
+                  resources:
+                      limits:
+                        cpu:  256m
+                        memory: 512Mi
+                      requests:
+                        cpu: 32m
+                        memory: 24Mi
+                  ports:
+                    - containerPort: 55679 # Default port for ZPages.
+                    - containerPort: 55680 # Default port for OpenTelemetry grPC receiver.
+                    - containerPort: 55681 # Default port for OpenTelemetry HTTP receiver.
+                    - containerPort: 8888  # Default port for querying metrics.
+                    - containerPort: 4317  # Default Opentelemetry Receiver Port.
+                    - containerPort: 4567  # IDK bro.
+                  volumeMounts:
+                    - name: otel-collector-config-vol
+                      mountPath: /conf
+                  livenessProbe:
+                    httpGet:
+                      path: /
+                      port: 13133 # Health Check extension default port.
+                  readinessProbe:
+                    httpGet:
+                      path: /
+                      port: 13133 # Health Check extension default port.
+            volumes:
+              - configMap:
+                  name: otel-collector-conf
+                  items:
+                  - key: otel-collector-config
+                    path: otel-collector-config.yaml
+                name: otel-collector-config-vol
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: aws-otel-eks
+  labels:
+    app: opentelemetry
+    component: otel-collector
+spec:
+  ports:
+    - name: otlp # Default endpoint for OpenTelemetry grPC receiver.
+      port: 55680
+      protocol: TCP
+      targetPort: 55680
+    - name: otlp2 # Default endpoint for OpenTelemetry HTTP receiver.
+      port: 55681
+      protocol: TCP
+      targetPort: 55681
+    - name: metrics # Default endpoint for querying metrics.
+      port: 8888
+    - name: receiver # Default receiver port.
+      port: 4317
+      protocol: TCP
+      targetPort: 4317
+    - name: idk # IDK bro.
+      port: 4567
+      protocol: TCP
+      targetPort: 4567
+  selector:
+    component: otel-collector
+---
