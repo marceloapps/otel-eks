@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adot-trace
+  namespace: aws-otel-eks
+spec:
+  selector:
+    matchLabels:
+      app: sample
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: sample
+    spec:
+      containers:
+        # - name: aws-otel-emitter
+        #   image: "aottestbed/aws-otel-collector-sample-app:java-0.1.0"
+        #   env:
+        #   - name: OTEL_OTLP_ENDPOINT
+        #     value: "localhost:4317"
+        #   - name: OTEL_RESOURCE_ATTRIBUTES
+        #     value: "service.namespace=AWSObservability,service.name=CloudWatchEKSService"
+        #   - name: S3_REGION
+        #     value: "sa-east-1"
+        #   imagePullPolicy: IfNotPresent
+        - name: trace-emitter
+          image: public.ecr.aws/g9c4k4i4/trace-emitter:1
+          env:
+          - name: OTEL_OTLP_ENDPOINT
+            value: "localhost:55680"
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: "service.namespace=AWSObservability,service.name=ADOTEmitService"
+          - name: S3_REGION
+            value: "sa-east-1"
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 256m
+              memory: 512Mi
